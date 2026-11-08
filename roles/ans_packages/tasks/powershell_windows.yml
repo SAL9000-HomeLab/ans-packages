@@ -1,0 +1,95 @@
+---
+# roles/ans_packages/tasks/powershell_windows.yml
+
+# The MSI registers as "PowerShell 7-x64" (or -x86, -arm64). Previews register as "PowerShell 7-preview-x64" and are
+# installed side by side, so they are ignored.
+- name: Look up the installed PowerShell 7
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $keys = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+      )
+      $installed = Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -match '^PowerShell 7-(x64|x86|arm64)$' } |
+        Select-Object -First 1
+      $version = ''
+      if ($installed -and $installed.DisplayVersion) {
+        $v = [version]$installed.DisplayVersion
+        $version = '{0}.{1}.{2}' -f $v.Major, $v.Minor, [math]::Max($v.Build, 0)
+      }
+      [pscustomobject]@{
+        ProductCode  = if ($installed) { $installed.PSChildName } else { '' }
+        Version      = $version
+        Architecture = $env:PROCESSOR_ARCHITECTURE
+      }
+  register: ans_packages__powershell_query
+
+- name: Note the installed PowerShell version
+  ansible.builtin.set_fact:
+    ans_packages__powershell_installed: "{{ ans_packages__powershell_query.output[0].Version }}"
+    ans_packages__powershell_product_code: "{{ ans_packages__powershell_query.output[0].ProductCode }}"
+
+- name: Install PowerShell {{ ans_packages_powershell_version }}
+  when:
+    - ans_packages_powershell == 'present'
+    - ans_packages__powershell_installed | length == 0
+      or ans_packages__powershell_installed is version(ans_packages_powershell_version, '<')
+  block:
+    - name: Check the architecture is supported for PowerShell
+      ansible.builtin.assert:
+        that:
+          - ans_packages__powershell_query.output[0].Architecture == 'AMD64'
+        fail_msg: >-
+          The role installs PowerShell on x64 only, not {{ ans_packages__powershell_query.output[0].Architecture }}
+        quiet: true
+
+    - name: Choose the PowerShell installer file
+      ansible.builtin.set_fact:
+        ans_packages__powershell_file: "PowerShell-{{ ans_packages_powershell_version }}-win-x64.msi"
+
+    - name: Download the PowerShell release checksums
+      ansible.windows.win_get_url:
+        url: "{{ ans_packages__powershell_release_url }}/hashes.sha256"
+        dest: "{{ ans_packages_download_dir_windows }}\\{{ ans_packages__powershell_file }}.hashes.sha256"
+        force: true
+      check_mode: false
+
+    - name: Find the checksum of the PowerShell installer
+      ansible.builtin.include_tasks: powershell_checksum.yml
+      vars:
+        ans_packages__powershell_hashes_path: >-
+          {{ ans_packages_download_dir_windows }}\{{ ans_packages__powershell_file }}.hashes.sha256
+
+    - name: Download {{ ans_packages__powershell_file }}
+      ansible.windows.win_get_url:
+        url: "{{ ans_packages__powershell_release_url }}/{{ ans_packages__powershell_file }}"
+        dest: "{{ ans_packages_download_dir_windows }}\\{{ ans_packages__powershell_file }}"
+        checksum: "{{ ans_packages__powershell_sha256 }}"
+        checksum_algorithm: sha256
+
+    # Installing over an older 7.x upgrades it in place.
+    - name: Install the PowerShell MSI
+      ansible.windows.win_package:
+        path: "{{ ans_packages_download_dir_windows }}\\{{ ans_packages__powershell_file }}"
+        arguments: "{{ ans_packages_powershell_msi_properties }}"
+        state: present
+
+  always:
+    - name: Delete the downloaded PowerShell installer and checksums
+      ansible.windows.win_file:
+        path: "{{ ans_packages_download_dir_windows }}\\{{ item }}"
+        state: absent
+      loop:
+        - "{{ ans_packages__powershell_file }}"
+        - "{{ ans_packages__powershell_file }}.hashes.sha256"
+      when: ans_packages__powershell_file is defined
+
+- name: Remove PowerShell 7
+  ansible.windows.win_package:
+    product_id: "{{ ans_packages__powershell_product_code }}"
+    state: absent
+  when:
+    - ans_packages_powershell == 'absent'
+    - ans_packages__powershell_product_code | length > 0

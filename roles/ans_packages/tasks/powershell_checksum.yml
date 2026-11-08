@@ -1,0 +1,28 @@
+---
+# roles/ans_packages/tasks/powershell_checksum.yml
+#
+# Reads the SHA256 of ans_packages__powershell_file from the release's hashes.sha256 (downloaded to
+# ans_packages__powershell_hashes_path) into ans_packages__powershell_sha256. The release writes that file in UTF-16
+# with a byte order mark, which base64-encodes to a leading "//" or "/v"; a file without one is read as UTF-8.
+
+- name: Read the PowerShell release checksums
+  ansible.builtin.slurp:
+    src: "{{ ans_packages__powershell_hashes_path }}"
+  register: ans_packages__powershell_hashes
+
+- name: Pick out the checksum of {{ ans_packages__powershell_file }}
+  ansible.builtin.set_fact:
+    ans_packages__powershell_sha256: >-
+      {{ ans_packages__powershell_hashes.content
+      | b64decode(encoding=('utf-16' if ans_packages__powershell_hashes.content[:2] in ['//', '/v'] else 'utf-8'))
+      | regex_search('(?im)^([0-9a-f]{64}) +\*?' ~ (ans_packages__powershell_file | regex_escape) ~ '\s*$', '\1')
+      | default([''], true) | first }}
+
+- name: Check the checksum of {{ ans_packages__powershell_file }} was found
+  ansible.builtin.assert:
+    that:
+      - ans_packages__powershell_sha256 | length == 64
+    fail_msg: >-
+      {{ ans_packages__powershell_file }} is not listed in
+      {{ ans_packages__powershell_release_url }}/hashes.sha256
+    quiet: true

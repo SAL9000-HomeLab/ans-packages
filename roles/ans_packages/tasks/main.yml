@@ -1,0 +1,27 @@
+---
+# roles/ans_packages/tasks/main.yml
+#
+# Each package has its own task file, included only when its variable is present or absent. A package's task file
+# handles the OS differences itself.
+
+- name: Check the package variables
+  ansible.builtin.assert:
+    that:
+      - (lookup('ansible.builtin.vars', item) | default('', true)) in ['', 'present', 'absent']
+    fail_msg: "{{ item }} must be present, absent or empty, not '{{ lookup('ansible.builtin.vars', item) }}'"
+    quiet: true
+  loop:
+    - ans_packages_powershell
+
+- name: Gather the OS family and architecture
+  ansible.builtin.setup:
+    gather_subset: [min]
+  when: ansible_facts['os_family'] is not defined or ansible_facts['architecture'] is not defined
+
+- name: Manage PowerShell
+  ansible.builtin.include_tasks:
+    file: powershell.yml
+    apply:
+      tags: [powershell]
+  when: ans_packages_powershell | default('', true) | length > 0
+  tags: [powershell]

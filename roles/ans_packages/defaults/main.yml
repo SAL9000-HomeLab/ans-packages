@@ -1,0 +1,34 @@
+---
+# roles/ans_packages/defaults/main.yml
+#
+# One variable per package. Each takes:
+#   present  install the package, or upgrade it to the pinned version
+#   absent   remove the package
+#   ""       leave the package as it is (the default)
+# Set them on the inventory, group or host. A host's value replaces its group's for that package only.
+
+# PowerShell 7 on Windows, RHEL/Rocky 9 and 10, and Ubuntu 24.04, from the PowerShell GitHub release. present
+# installs ans_packages_powershell_version when PowerShell 7 is missing or older; a newer version is left alone.
+# Windows PowerShell 5.1 is part of Windows and is not touched.
+ans_packages_powershell: ""
+
+# Release to install. The 7.6 series is the current long-term support release.
+ans_packages_powershell_version: "7.6.9"
+
+# Where the installers and the release's hashes.sha256 are downloaded from. The version tag (v7.6.9) is appended.
+# Point it at a mirror with the same layout to install without GitHub access.
+ans_packages_powershell_base_url: https://github.com/PowerShell/PowerShell/releases/download
+
+# RHEL/Rocky: the key the PowerShell RPM is signed with, imported so dnf can check the signature. The import fails
+# unless the key has this fingerprint.
+ans_packages_powershell_rpm_key_url: https://packages.microsoft.com/keys/microsoft.asc
+ans_packages_powershell_rpm_key_fingerprint: BC528686B50D79E339D3721CEB3E94ADBE1229CF
+
+# Windows: properties passed to the MSI. Microsoft Update is off so the version stays the one pinned above.
+ans_packages_powershell_msi_properties: >-
+  ADD_PATH=1 REGISTER_MANIFEST=1 USE_MU=0 ENABLE_MU=0 ENABLE_PSREMOTING=0
+  ADD_EXPLORER_CONTEXT_MENU_OPENPOWERSHELL=0 ADD_FILE_CONTEXT_MENU_RUNPOWERSHELL=0
+
+# Directories installers are downloaded to before they are installed and deleted.
+ans_packages_download_dir_linux: /var/tmp
+ans_packages_download_dir_windows: C:\Windows\Temp
