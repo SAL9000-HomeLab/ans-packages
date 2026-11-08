@@ -1,0 +1,24 @@
+---
+galaxy_info:
+  author: Roland Serman
+  description: Installs and removes software packages, such as PowerShell 7, on Linux and Windows hosts
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+        - "10"
+    - name: Ubuntu
+      versions:
+        - noble
+    - name: Windows
+      versions:
+        - "2025"
+  galaxy_tags:
+    - packages
+    - powershell
+    - linux
+    - windows
+
+dependencies: []

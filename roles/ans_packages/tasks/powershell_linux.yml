@@ -1,0 +1,109 @@
+---
+# roles/ans_packages/tasks/powershell_linux.yml
+
+- name: Look up the installed PowerShell package
+  ansible.builtin.command:
+    argv: "{{ ['rpm', '-q', '--qf', 'installed %{VERSION}', 'powershell'] if ansible_facts['os_family'] == 'RedHat'
+      else ['dpkg-query', '--showformat=${db:Status-Status} ${Version}', '--show', 'powershell'] }}"
+    expand_argument_vars: false # keep ${...} for dpkg-query
+  register: ans_packages__powershell_query
+  changed_when: false
+  failed_when: false
+
+# Both print "<status> <version>": rpm "installed 7.6.9", dpkg "installed 7.6.9-1.deb". dpkg also knows removed
+# packages whose configuration files are left ("config-files 7.6.9-1.deb"), which count as not installed, as does
+# an rc other than 0.
+- name: Note the installed PowerShell version
+  ansible.builtin.set_fact:
+    ans_packages__powershell_installed: >-
+      {%- set words = ans_packages__powershell_query.stdout.split() -%}
+      {{ words[1].split('-')[0]
+         if ans_packages__powershell_query.rc == 0 and words | length == 2 and words[0] == 'installed' else '' }}
+
+- name: Install PowerShell {{ ans_packages_powershell_version }}
+  when:
+    - ans_packages_powershell == 'present'
+    - ans_packages__powershell_installed | length == 0
+      or ans_packages__powershell_installed is version(ans_packages_powershell_version, '<')
+  block:
+    - name: Check the architecture is supported for PowerShell
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['architecture'] == 'x86_64'
+        fail_msg: >-
+          The role installs PowerShell on x86_64 only (the release has no RHEL RPM for other architectures), not
+          {{ ansible_facts['architecture'] }}
+        quiet: true
+
+    - name: Choose the PowerShell package file
+      ansible.builtin.set_fact:
+        ans_packages__powershell_file: >-
+          {{ ('powershell-%s-1.rh.x86_64.rpm' if ansible_facts['os_family'] == 'RedHat'
+          else 'powershell_%s-1.deb_amd64.deb') | format(ans_packages_powershell_version) }}
+
+    - name: Download the PowerShell release checksums
+      ansible.builtin.get_url:
+        url: "{{ ans_packages__powershell_release_url }}/hashes.sha256"
+        dest: "{{ ans_packages_download_dir_linux }}/{{ ans_packages__powershell_file }}.hashes.sha256"
+        mode: "0644"
+        force: true
+      check_mode: false
+
+    - name: Find the checksum of the PowerShell package
+      ansible.builtin.include_tasks: powershell_checksum.yml
+      vars:
+        ans_packages__powershell_hashes_path: >-
+          {{ ans_packages_download_dir_linux }}/{{ ans_packages__powershell_file }}.hashes.sha256
+
+    - name: Download the PowerShell installer
+      ansible.builtin.get_url:
+        url: "{{ ans_packages__powershell_release_url }}/{{ ans_packages__powershell_file }}"
+        dest: "{{ ans_packages_download_dir_linux }}/{{ ans_packages__powershell_file }}"
+        checksum: "sha256:{{ ans_packages__powershell_sha256 }}"
+        mode: "0644"
+
+    # rpm_key runs gpg2 to check the key fingerprint. Nothing on EL10 needs gnupg2, so a minimal host may lack it.
+    - name: Install gnupg2 to check the signing key
+      ansible.builtin.dnf:
+        name: gnupg2
+        state: present
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    # dnf checks the RPM's signature, which needs the key it was signed with.
+    - name: Import the key the PowerShell RPM is signed with
+      ansible.builtin.rpm_key:
+        key: "{{ ans_packages_powershell_rpm_key_url }}"
+        fingerprint: "{{ ans_packages_powershell_rpm_key_fingerprint }}"
+        state: present
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Install the PowerShell RPM
+      ansible.builtin.dnf:
+        name: "{{ ans_packages_download_dir_linux }}/{{ ans_packages__powershell_file }}"
+        state: present
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Install the PowerShell .deb
+      ansible.builtin.apt:
+        deb: "{{ ans_packages_download_dir_linux }}/{{ ans_packages__powershell_file }}"
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_facts['os_family'] == 'Debian'
+
+  always:
+    - name: Delete the downloaded PowerShell package and checksums
+      ansible.builtin.file:
+        path: "{{ ans_packages_download_dir_linux }}/{{ item }}"
+        state: absent
+      loop:
+        - "{{ ans_packages__powershell_file }}"
+        - "{{ ans_packages__powershell_file }}.hashes.sha256"
+      when: ans_packages__powershell_file is defined
+
+- name: Remove PowerShell
+  ansible.builtin.package:
+    name: powershell
+    state: absent
+  when:
+    - ans_packages_powershell == 'absent'
+    - ans_packages__powershell_installed | length > 0

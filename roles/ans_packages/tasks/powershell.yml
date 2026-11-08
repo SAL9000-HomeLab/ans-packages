@@ -1,0 +1,25 @@
+---
+# roles/ans_packages/tasks/powershell.yml
+#
+# PowerShell 7 from the GitHub release: the MSI on Windows, the RHEL RPM on RHEL/Rocky, the .deb on Ubuntu. Each
+# download is checked against the SHA256 in the release's hashes.sha256 before it is installed.
+
+- name: Check the platform is supported for PowerShell
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] in ['Windows', 'RedHat', 'Debian']
+    fail_msg: "PowerShell is supported on Windows, RHEL/Rocky and Ubuntu, not {{ ansible_facts['distribution'] }}"
+    quiet: true
+
+- name: Set the PowerShell release URL
+  ansible.builtin.set_fact:
+    ans_packages__powershell_release_url: >-
+      {{ ans_packages_powershell_base_url | regex_replace('/+$', '') }}/v{{ ans_packages_powershell_version }}
+
+- name: Manage PowerShell on Windows
+  ansible.builtin.include_tasks: powershell_windows.yml
+  when: ansible_facts['os_family'] == 'Windows'
+
+- name: Manage PowerShell on Linux
+  ansible.builtin.include_tasks: powershell_linux.yml
+  when: ansible_facts['os_family'] != 'Windows'
