@@ -62,7 +62,7 @@
         ans_packages__powershell_hashes_path: >-
           {{ ans_packages_download_dir_windows }}\{{ ans_packages__powershell_file }}.hashes.sha256
 
-    - name: Download {{ ans_packages__powershell_file }}
+    - name: Download the PowerShell installer
       ansible.windows.win_get_url:
         url: "{{ ans_packages__powershell_release_url }}/{{ ans_packages__powershell_file }}"
         dest: "{{ ans_packages_download_dir_windows }}\\{{ ans_packages__powershell_file }}"
