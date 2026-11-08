@@ -18,7 +18,7 @@
       | regex_search('(?im)^([0-9a-f]{64}) +\*?' ~ (ans_packages__powershell_file | regex_escape) ~ '\s*$', '\1')
       | default([''], true) | first }}
 
-- name: Check the checksum of {{ ans_packages__powershell_file }} was found
+- name: Check the checksum was found for {{ ans_packages__powershell_file }}
   ansible.builtin.assert:
     that:
       - ans_packages__powershell_sha256 | length == 64
